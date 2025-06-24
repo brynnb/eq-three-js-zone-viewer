@@ -1,0 +1,9 @@
+.idea
+bin
+obj
+.DS_Store
+*.pyc
+*.zip
+
+# Generated .glb files (large binary files)
+*.glb

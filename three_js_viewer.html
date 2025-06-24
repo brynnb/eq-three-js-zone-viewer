@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenEQ Zone Viewer - WebGPU</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        font-family: Arial, sans-serif;
+        overflow: hidden;
+        cursor: none;
+      }
+
+      #container {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      #rendererInfo {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 10px;
+        border-radius: 5px;
+        color: white;
+        font-size: 12px;
+        text-align: center;
+      }
+
+      #controls {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 5px;
+        color: white;
+      }
+
+      #fileInput {
+        margin-bottom: 10px;
+      }
+
+      #info {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px;
+        border-radius: 5px;
+        color: white;
+        font-size: 12px;
+      }
+
+      #lightControls {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 5px;
+        color: white;
+        min-width: 200px;
+      }
+
+      button {
+        background: #4caf50;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        margin-right: 5px;
+      }
+
+      button:hover {
+        background: #45a049;
+      }
+
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-size: 18px;
+        display: none;
+      }
+
+      .drag-over {
+        border: 3px dashed #4caf50 !important;
+        background-color: rgba(76, 175, 80, 0.1) !important;
+      }
+
+      #crosshair {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 20px;
+        height: 20px;
+        z-index: 50;
+        pointer-events: none;
+      }
+
+      #crosshair::before,
+      #crosshair::after {
+        content: "";
+        position: absolute;
+        background: rgba(255, 255, 255, 0.8);
+      }
+
+      #crosshair::before {
+        width: 2px;
+        height: 20px;
+        left: 50%;
+        top: 0;
+        transform: translateX(-50%);
+      }
+
+      #crosshair::after {
+        width: 20px;
+        height: 2px;
+        top: 50%;
+        left: 0;
+        transform: translateY(-50%);
+      }
+
+      .slider-container {
+        margin: 10px 0;
+      }
+
+      .slider-container label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 12px;
+      }
+
+      .slider-container input[type="range"] {
+        width: 100%;
+        margin: 5px 0;
+      }
+
+      .light-stat {
+        font-size: 11px;
+        color: #aaa;
+        margin: 2px 0;
+      }
+
+      .webgpu-active {
+        color: #4caf50;
+        font-weight: bold;
+      }
+
+      .webgl-fallback {
+        color: #ff9800;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <div id="rendererInfo">
+        <div id="rendererType">Initializing...</div>
+        <div id="rendererCapabilities"></div>
+      </div>
+
+      <div id="controls">
+        <h3>OpenEQ Zone Viewer - WebGPU</h3>
+        <input type="file" id="fileInput" accept=".glb,.gltf" />
+        <br />
+        <button onclick="resetCamera()">Reset Camera</button>
+        <button onclick="toggleWireframe()">Toggle Wireframe</button>
+        <button onclick="toggleLighting()">Toggle Lighting</button>
+        <button onclick="toggleMaterialType()">Toggle Materials</button>
+        <button onclick="togglePointerLock()">Toggle Mouse Lock</button>
+        <button id="reloadButton" onclick="reloadLastFile()" disabled>
+          Reload Last File
+        </button>
+        <br />
+      </div>
+
+      <div id="lightControls">
+        <h4>EverQuest Lighting</h4>
+        <div class="light-stat">
+          Total Lights: <span id="lightCount">0</span>
+        </div>
+        <div class="light-stat">
+          Active: <span id="activeLightCount">0</span> /
+          <span id="maxLights">32</span>
+        </div>
+        <div class="light-stat">
+          Shadows: <span id="shadowCount">Enabled</span>
+        </div>
+        <div class="light-stat">
+          Renderer: <span id="activeRenderer">WebGPU</span>
+        </div>
+
+        <div class="slider-container">
+          <label>Ambient Light: <span id="ambientValue">1.2</span></label>
+          <input
+            type="range"
+            id="ambientSlider"
+            min="0"
+            max="3"
+            step="0.1"
+            value="1.2"
+          />
+        </div>
+
+        <div class="slider-container">
+          <label
+            >EQ Light Intensity: <span id="eqIntensityValue">1.0</span></label
+          >
+          <input
+            type="range"
+            id="eqIntensitySlider"
+            min="0"
+            max="5"
+            step="0.1"
+            value="1.0"
+          />
+        </div>
+
+        <div class="slider-container">
+          <label>Directional Light: <span id="dirLightValue">3.2</span></label>
+          <input
+            type="range"
+            id="dirLightSlider"
+            min="0"
+            max="10"
+            step="0.1"
+            value="3.2"
+          />
+        </div>
+
+        <button onclick="toggleEQlights()">Toggle EQ Lights</button>
+        <button onclick="toggleLightHelpers()">Toggle Helpers</button>
+      </div>
+
+      <div id="info">
+        <div>Controls:</div>
+        <div>• WASD: Move forward/back/left/right</div>
+        <div>• QE: Move up/down</div>
+        <div>• Mouse: Look around (click to lock)</div>
+        <div>• Shift: Move faster</div>
+        <div>• Ctrl: Move slower</div>
+        <div>• Drag & drop GLB files anywhere</div>
+        <div>• WebGPU: Supports unlimited textures & lights!</div>
+        <div>• Fallback: Automatically uses WebGL if needed</div>
+        <div id="stats"></div>
+      </div>
+
+      <div id="loading">Loading...</div>
+      <div id="crosshair"></div>
+    </div>
+
+    <!-- Import map for Three.js WebGPU support -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.webgpu.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+      // Import Three.js with WebGPU support
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+      // Global variables
+      let scene, camera, renderer;
+      let currentModel = null;
+      let wireframeMode = false;
+      let lightingEnabled = true;
+      let materialType = "lit"; // Start with lit materials since WebGPU can handle them
+      let ambientLight, directionalLight;
+      let lastFileData = null;
+      let lastFileName = null;
+      let isWebGPU = false;
+
+      // EverQuest lighting variables
+      let eqLights = [];
+      let lightHelpers = [];
+      let eqLightsEnabled = true;
+      let helpersVisible = false;
+
+      // Initialize global lighting variables
+      window.eqLightIntensityMultiplier = 1.0;
+
+      // Flying controls variables
+      let moveForward = false;
+      let moveBackward = false;
+      let moveLeft = false;
+      let moveRight = false;
+      let moveUp = false;
+      let moveDown = false;
+      let canJump = false;
+      let shiftPressed = false;
+      let ctrlPressed = false;
+
+      let prevTime = performance.now();
+      let velocity, direction; // Will be initialized after THREE.js loads
+
+      // Mouse controls
+      let isPointerLocked = false;
+      let euler; // Will be initialized after THREE.js loads
+      let PI_2 = Math.PI / 2;
+
+      // Movement settings
+      const moveSpeed = 5000.0;
+      const fastMoveMultiplier = 3.0;
+      const slowMoveMultiplier = 0.3;
+
+      // WebGPU vs WebGL limits
+      const MAX_ACTIVE_LIGHTS_WEBGPU = 32; // Much higher limit with WebGPU
+      const MAX_ACTIVE_LIGHTS_WEBGL = 2; // Conservative limit for WebGL fallback
+      let MAX_ACTIVE_LIGHTS = MAX_ACTIVE_LIGHTS_WEBGPU;
+
+      // Distance-based light culling with pooling system
+      let lastCameraPosition; // Will be initialized after THREE.js loads
+      let lightUpdateCounter = 0;
+
+      // Check WebGPU support and initialize renderer
+      async function initRenderer() {
+        let rendererInfo = {
+          type: "WebGL",
+          capabilities: "Fallback Mode",
+        };
+
+        try {
+          // Check if WebGPU is available
+          if (navigator.gpu) {
+            console.log("WebGPU is available, initializing WebGPU renderer...");
+            renderer = new THREE.WebGPURenderer({ antialias: true });
+            await renderer.init();
+
+            isWebGPU = true;
+            MAX_ACTIVE_LIGHTS = MAX_ACTIVE_LIGHTS_WEBGPU;
+            rendererInfo = {
+              type: "WebGPU",
+              capabilities: "High Performance Mode",
+            };
+
+            // Enable advanced features for WebGPU
+            renderer.shadowMap.enabled = true;
+
+            console.log("WebGPU renderer initialized successfully");
+          } else {
+            throw new Error("WebGPU not available");
+          }
+        } catch (error) {
+          console.warn(
+            "WebGPU initialization failed, falling back to WebGL:",
+            error.message
+          );
+
+          // Fallback to WebGL
+          renderer = new THREE.WebGLRenderer({ antialias: true });
+          isWebGPU = false;
+          MAX_ACTIVE_LIGHTS = MAX_ACTIVE_LIGHTS_WEBGL;
+          materialType = "unlit"; // Default to unlit for WebGL to avoid uniform limits
+
+          // Disable shadows for WebGL to prevent uniform limit issues
+          renderer.shadowMap.enabled = false;
+
+          rendererInfo = {
+            type: "WebGL",
+            capabilities: "Fallback Mode - Limited lights/textures",
+          };
+        }
+
+        // Update UI
+        const rendererTypeEl = document.getElementById("rendererType");
+        const rendererCapabilitiesEl = document.getElementById(
+          "rendererCapabilities"
+        );
+        const activeRendererEl = document.getElementById("activeRenderer");
+        const maxLightsEl = document.getElementById("maxLights");
+        const shadowCountEl = document.getElementById("shadowCount");
+
+        rendererTypeEl.textContent = rendererInfo.type;
+        rendererTypeEl.className = isWebGPU
+          ? "webgpu-active"
+          : "webgl-fallback";
+        rendererCapabilitiesEl.textContent = rendererInfo.capabilities;
+        activeRendererEl.textContent = rendererInfo.type;
+        maxLightsEl.textContent = MAX_ACTIVE_LIGHTS;
+        shadowCountEl.textContent = renderer.shadowMap.enabled
+          ? "Enabled"
+          : "Disabled";
+
+        // Update material toggle button
+        const buttons = document.querySelectorAll("button");
+        buttons.forEach((button) => {
+          if (button.textContent.includes("Toggle Materials")) {
+            button.textContent = `Toggle Materials (${
+              materialType === "lit" ? "Lit" : "Unlit"
+            })`;
+          }
+        });
+
+        return renderer;
+      }
+
+      // Initialize Three.js scene
+      async function init() {
+        try {
+          // Initialize THREE.js-dependent variables
+          velocity = new THREE.Vector3();
+          direction = new THREE.Vector3();
+          euler = new THREE.Euler(0, 0, 0, "YXZ");
+          lastCameraPosition = new THREE.Vector3();
+
+          // Create scene
+          scene = new THREE.Scene();
+          scene.background = new THREE.Color(0x202020);
+
+          // Create camera
+          camera = new THREE.PerspectiveCamera(
+            75,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            10000
+          );
+          camera.position.set(50, 50, 50);
+
+          // Initialize renderer (WebGPU with WebGL fallback)
+          await initRenderer();
+
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          document.getElementById("container").appendChild(renderer.domElement);
+
+          // Setup controls
+          setupFlyingControls();
+
+          // Add lights
+          setupLighting();
+
+          // Setup lighting controls
+          setupLightingControls();
+
+          // Add axes helper
+          const axesHelper = new THREE.AxesHelper(20);
+          scene.add(axesHelper);
+
+          // Handle window resize
+          window.addEventListener("resize", onWindowResize, false);
+
+          // Setup file input
+          document
+            .getElementById("fileInput")
+            .addEventListener("change", handleFileSelect, false);
+
+          // Setup drag and drop
+          setupDragAndDrop();
+
+          // Try to restore last file from localStorage
+          restoreLastFile();
+
+          // Start render loop
+          animate();
+
+          console.log(
+            `OpenEQ Zone Viewer initialized with ${
+              isWebGPU ? "WebGPU" : "WebGL"
+            }`
+          );
+          console.log(`Maximum active lights: ${MAX_ACTIVE_LIGHTS}`);
+          console.log(
+            `Shadows: ${renderer.shadowMap.enabled ? "Enabled" : "Disabled"}`
+          );
+        } catch (error) {
+          console.error("Failed to initialize OpenEQ Zone Viewer:", error);
+          alert(
+            "Failed to initialize the zone viewer. Please check the console for details and try refreshing the page."
+          );
+        }
+      }
+
+      function setupFlyingControls() {
+        // Keyboard controls
+        document.addEventListener("keydown", onKeyDown);
+        document.addEventListener("keyup", onKeyUp);
+
+        // Mouse controls - click to activate pointer lock
+        renderer.domElement.addEventListener("click", function () {
+          if (!isPointerLocked) {
+            renderer.domElement.requestPointerLock();
+          }
+        });
+
+        // Pointer lock change events
+        document.addEventListener("pointerlockchange", onPointerLockChange);
+        document.addEventListener("pointerlockerror", onPointerLockError);
+
+        // Mouse movement
+        document.addEventListener("mousemove", onMouseMove);
+      }
+
+      function onKeyDown(event) {
+        switch (event.code) {
+          case "ArrowUp":
+          case "KeyW":
+            moveForward = true;
+            break;
+          case "ArrowLeft":
+          case "KeyA":
+            moveLeft = true;
+            break;
+          case "ArrowDown":
+          case "KeyS":
+            moveBackward = true;
+            break;
+          case "ArrowRight":
+          case "KeyD":
+            moveRight = true;
+            break;
+          case "KeyQ":
+            moveUp = true;
+            break;
+          case "KeyE":
+            moveDown = true;
+            break;
+          case "ShiftLeft":
+          case "ShiftRight":
+            shiftPressed = true;
+            break;
+          case "ControlLeft":
+          case "ControlRight":
+            ctrlPressed = true;
+            break;
+          case "Escape":
+            if (isPointerLocked) {
+              document.exitPointerLock();
+            }
+            break;
+        }
+      }
+
+      function onKeyUp(event) {
+        switch (event.code) {
+          case "ArrowUp":
+          case "KeyW":
+            moveForward = false;
+            break;
+          case "ArrowLeft":
+          case "KeyA":
+            moveLeft = false;
+            break;
+          case "ArrowDown":
+          case "KeyS":
+            moveBackward = false;
+            break;
+          case "ArrowRight":
+          case "KeyD":
+            moveRight = false;
+            break;
+          case "KeyQ":
+            moveUp = false;
+            break;
+          case "KeyE":
+            moveDown = false;
+            break;
+          case "ShiftLeft":
+          case "ShiftRight":
+            shiftPressed = false;
+            break;
+          case "ControlLeft":
+          case "ControlRight":
+            ctrlPressed = false;
+            break;
+        }
+      }
+
+      function onMouseMove(event) {
+        if (!isPointerLocked) return;
+
+        const movementX =
+          event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+        const movementY =
+          event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+
+        euler.setFromQuaternion(camera.quaternion);
+        euler.y -= movementX * 0.002;
+        euler.x -= movementY * 0.002;
+        euler.x = Math.max(-PI_2, Math.min(PI_2, euler.x));
+        camera.quaternion.setFromEuler(euler);
+      }
+
+      function onPointerLockChange() {
+        isPointerLocked = document.pointerLockElement === renderer.domElement;
+        document.body.style.cursor = isPointerLocked ? "none" : "default";
+      }
+
+      function onPointerLockError() {
+        console.error("Pointer lock failed");
+      }
+
+      function togglePointerLock() {
+        if (isPointerLocked) {
+          document.exitPointerLock();
+        } else {
+          renderer.domElement.requestPointerLock();
+        }
+      }
+
+      function updateMovement(delta) {
+        velocity.x -= velocity.x * 10.0 * delta;
+        velocity.z -= velocity.z * 10.0 * delta;
+        velocity.y -= velocity.y * 10.0 * delta;
+
+        direction.z = Number(moveForward) - Number(moveBackward);
+        direction.x = Number(moveRight) - Number(moveLeft);
+        direction.y = Number(moveUp) - Number(moveDown);
+        direction.normalize();
+
+        // Speed modifiers
+        let currentMoveSpeed = moveSpeed;
+        if (shiftPressed) currentMoveSpeed *= fastMoveMultiplier;
+        if (ctrlPressed) currentMoveSpeed *= slowMoveMultiplier;
+
+        if (moveForward || moveBackward)
+          velocity.z -= direction.z * currentMoveSpeed * delta;
+        if (moveLeft || moveRight)
+          velocity.x -= direction.x * currentMoveSpeed * delta;
+        if (moveUp || moveDown)
+          velocity.y += direction.y * currentMoveSpeed * delta;
+
+        // Apply movement
+        const moveVector = new THREE.Vector3();
+
+        // Forward/backward movement
+        camera.getWorldDirection(moveVector);
+        moveVector.multiplyScalar(-velocity.z * delta);
+        camera.position.add(moveVector);
+
+        // Left/right movement
+        moveVector.set(-velocity.x * delta, 0, 0);
+        moveVector.applyQuaternion(camera.quaternion);
+        camera.position.add(moveVector);
+
+        // Up/down movement
+        camera.position.y += velocity.y * delta;
+      }
+
+      function setupLighting() {
+        // Ambient light - increased brightness
+        ambientLight = new THREE.AmbientLight(0x404040, 1.2);
+        scene.add(ambientLight);
+
+        // Directional light (sun) - increased brightness
+        directionalLight = new THREE.DirectionalLight(0xffffff, 3.2);
+        directionalLight.position.set(100, 100, 50);
+
+        // Enable shadows if WebGPU is available
+        if (isWebGPU) {
+          directionalLight.castShadow = true;
+          directionalLight.shadow.mapSize.width = 2048;
+          directionalLight.shadow.mapSize.height = 2048;
+          directionalLight.shadow.camera.near = 0.5;
+          directionalLight.shadow.camera.far = 500;
+          directionalLight.shadow.camera.left = -200;
+          directionalLight.shadow.camera.right = 200;
+          directionalLight.shadow.camera.top = 200;
+          directionalLight.shadow.camera.bottom = -200;
+        } else {
+          directionalLight.castShadow = false; // Disable shadows for WebGL fallback
+        }
+
+        scene.add(directionalLight);
+
+        // Add directional light helper
+        const lightHelper = new THREE.DirectionalLightHelper(
+          directionalLight,
+          5
+        );
+        scene.add(lightHelper);
+      }
+
+      function setupLightingControls() {
+        // Ambient light control
+        const ambientSlider = document.getElementById("ambientSlider");
+        const ambientValue = document.getElementById("ambientValue");
+        ambientSlider.addEventListener("input", (e) => {
+          const value = parseFloat(e.target.value);
+          ambientValue.textContent = value.toFixed(1);
+          ambientLight.intensity = value;
+        });
+
+        // EQ light intensity control
+        const eqIntensitySlider = document.getElementById("eqIntensitySlider");
+        const eqIntensityValue = document.getElementById("eqIntensityValue");
+        eqIntensitySlider.addEventListener("input", (e) => {
+          const value = parseFloat(e.target.value);
+          eqIntensityValue.textContent = value.toFixed(1);
+          // Store the global intensity multiplier
+          window.eqLightIntensityMultiplier = value;
+          // Force an immediate light update
+          lightUpdateCounter = 0;
+          updateNearbyLights();
+        });
+
+        // Directional light control
+        const dirLightSlider = document.getElementById("dirLightSlider");
+        const dirLightValue = document.getElementById("dirLightValue");
+        dirLightSlider.addEventListener("input", (e) => {
+          const value = parseFloat(e.target.value);
+          dirLightValue.textContent = value.toFixed(1);
+          directionalLight.intensity = value;
+        });
+      }
+
+      function toggleEQlights() {
+        eqLightsEnabled = !eqLightsEnabled;
+        // Let the updateNearbyLights function handle visibility based on the flag
+        updateNearbyLights();
+        console.log(`EQ lights ${eqLightsEnabled ? "enabled" : "disabled"}`);
+      }
+
+      function toggleLightHelpers() {
+        helpersVisible = !helpersVisible;
+
+        if (helpersVisible) {
+          // Show helpers for ALL lights, not just active ones
+          window.allEQLightData.forEach((lightData, index) => {
+            if (index < lightHelpers.length) {
+              const helper = lightHelpers[index];
+
+              // Position the helper at the light's location
+              // Use the same data structure as actual lights for consistency
+              helper.position.fromArray(lightData.position);
+              helper.visible = true;
+
+              // Update helper components
+              const rangeSphere = helper.userData.rangeSphere;
+              if (rangeSphere && lightData.range > 0) {
+                rangeSphere.scale.setScalar(lightData.range);
+              }
+
+              // Update marker color to match light color
+              const marker = helper.userData.marker;
+              if (marker && marker.material) {
+                const lightColor = new THREE.Color().fromArray(lightData.color);
+                marker.material.color.copy(lightColor);
+                marker.material.color.multiplyScalar(1.5); // Brighten for visibility
+              }
+
+              // Update point helper color
+              const pointHelper = helper.userData.pointHelper;
+              if (pointHelper && pointHelper.material) {
+                const lightColor = new THREE.Color().fromArray(lightData.color);
+                pointHelper.material.color.copy(lightColor);
+              }
+            }
+          });
+        } else {
+          // Hide all helpers
+          lightHelpers.forEach((helper) => {
+            helper.visible = false;
+          });
+        }
+
+        console.log(`Light helpers ${helpersVisible ? "enabled" : "disabled"}`);
+        if (helpersVisible && window.allEQLightData) {
+          console.log(
+            `Showing ${window.allEQLightData.length} EQ light positions`
+          );
+        }
+      }
+
+      function handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        processFile(file);
+      }
+
+      function processFile(file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          // Store the file data and name for reload functionality
+          lastFileData = e.target.result;
+          lastFileName = file.name;
+
+          // Try to save to localStorage (with size limits)
+          saveFileToStorage(e.target.result, file.name);
+
+          loadGLTF(e.target.result, file.name);
+
+          // Enable the reload button and update its text
+          const reloadButton = document.getElementById("reloadButton");
+          reloadButton.disabled = false;
+          reloadButton.textContent = `Reload: ${file.name}`;
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
+      function loadGLTF(arrayBuffer, filename) {
+        document.getElementById("loading").style.display = "block";
+
+        const loader = new GLTFLoader();
+
+        loader.parse(
+          arrayBuffer,
+          "",
+          function (gltf) {
+            // Remove previous model if it exists
+            if (currentModel) {
+              scene.remove(currentModel);
+            }
+
+            // Clear previous EQ lights
+            clearEQlights();
+
+            // Add new model
+            currentModel = gltf.scene;
+            scene.add(currentModel);
+
+            // Calculate bounding box excluding skybox meshes
+            const box = new THREE.Box3();
+            currentModel.traverse(function (child) {
+              if (child.isMesh) {
+                // Check if this is a skybox mesh (before userData is set)
+                const nameStr = (child.name || "").toLowerCase();
+                const parentNameStr = (child.parent?.name || "").toLowerCase();
+                const isSkybox =
+                  nameStr.includes("sky") ||
+                  nameStr.includes("cloud") ||
+                  nameStr.includes("sun") ||
+                  nameStr.includes("moon") ||
+                  parentNameStr.includes("sky") ||
+                  parentNameStr.includes("skybox");
+
+                // Only include non-skybox meshes in bounding box calculation
+                if (!isSkybox) {
+                  box.expandByObject(child);
+                }
+              }
+            });
+
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+
+            // Model is already centered in the glTF file, no position adjustment needed
+
+            // Position camera for first-person view
+            const maxDim = Math.max(size.x, size.y, size.z);
+            if (maxDim > 0) {
+              camera.position.set(0, size.y * 0.3, maxDim * 0.3);
+            } else {
+              // Fallback if no geometry found
+              camera.position.set(0, 50, 50);
+            }
+            camera.lookAt(0, 0, 0);
+
+            // Process materials and configure transparency
+            currentModel.traverse(function (child) {
+              if (child.isMesh) {
+                // Convert materials to appropriate type based on current setting
+                if (child.material) {
+                  convertMeshMaterials(child);
+                }
+
+                // Check if this is a skybox mesh
+                const nameStr = (child.name || "").toLowerCase();
+                const parentNameStr = (child.parent?.name || "").toLowerCase();
+                const isSkybox =
+                  nameStr.includes("sky") ||
+                  nameStr.includes("cloud") ||
+                  nameStr.includes("sun") ||
+                  nameStr.includes("moon") ||
+                  parentNameStr.includes("sky") ||
+                  parentNameStr.includes("skybox");
+
+                if (isSkybox) {
+                  // Special handling for skybox meshes
+                  child.castShadow = false;
+                  child.receiveShadow = false;
+                  child.renderOrder = -1000;
+                  child.frustumCulled = false;
+
+                  if (child.material) {
+                    const materials = Array.isArray(child.material)
+                      ? child.material
+                      : [child.material];
+
+                    materials.forEach((material) => {
+                      material.side = THREE.BackSide;
+                      material.depthWrite = false;
+                      material.depthTest = true;
+                      material.depthFunc = THREE.LessEqualDepth;
+
+                      if (child.name?.toLowerCase().includes("cloud")) {
+                        material.transparent = true;
+                        material.opacity = 0.8;
+                      }
+
+                      material.needsUpdate = true;
+                    });
+                  }
+
+                  child.scale.setScalar(5000);
+                  child.rotation.x = Math.PI / 2;
+
+                  child.userData.isSkybox = true;
+                } else {
+                  // Regular mesh handling - disable shadows for uniform limit compatibility
+                  child.castShadow = false;
+                  child.receiveShadow = false;
+                }
+              }
+            });
+
+            // Process EverQuest lights from KHR_lights_punctual extension
+            processEQlights(gltf);
+
+            // Update stats
+            updateStats(gltf);
+
+            document.getElementById("loading").style.display = "none";
+            console.log("Model loaded successfully:", filename);
+          },
+          function (error) {
+            console.error("Error loading glTF:", error);
+            document.getElementById("loading").style.display = "none";
+            alert("Error loading glTF file: " + error);
+          }
+        );
+      }
+
+      function processEQlights(gltf) {
+        let lightCount = 0;
+        let shadowCount = 0;
+
+        // Check for KHR_lights_punctual extension
+        if (
+          gltf.parser.json.extensions &&
+          gltf.parser.json.extensions.KHR_lights_punctual
+        ) {
+          const lightsExtension =
+            gltf.parser.json.extensions.KHR_lights_punctual;
+          const lightDefinitions = lightsExtension.lights || [];
+
+          console.log(
+            `Found ${lightDefinitions.length} EverQuest light definitions`
+          );
+
+          // Store all light data without creating Three.js lights yet
+          const allLightData = [];
+
+          // Process light nodes - store data only, don't create Three.js lights
+          gltf.parser.json.nodes.forEach((node, nodeIndex) => {
+            if (node.extensions && node.extensions.KHR_lights_punctual) {
+              const lightIndex = node.extensions.KHR_lights_punctual.light;
+              const lightDef = lightDefinitions[lightIndex];
+
+              if (lightDef && lightDef.type === "point") {
+                const lightData = {
+                  color: lightDef.color || [1, 1, 1],
+                  intensity: lightDef.intensity || 1.0,
+                  range: lightDef.range || 0,
+                  position: node.translation || [0, 0, 0],
+                };
+
+                allLightData.push(lightData);
+                lightCount++;
+              }
+            }
+          });
+
+          // Store all light data globally for the culling system
+          window.allEQLightData = allLightData;
+
+          // Create a pool of Three.js lights (only the maximum we'll ever use)
+          eqLights = [];
+          lightHelpers = [];
+
+          // Create light pool with WebGPU-aware limits
+          const maxPoolLights = Math.min(MAX_ACTIVE_LIGHTS, lightCount);
+          console.log(
+            `Creating light pool: ${maxPoolLights} lights for ${lightCount} total EQ lights`
+          );
+
+          for (let i = 0; i < maxPoolLights; i++) {
+            // Create pooled light but don't add to scene yet for efficiency
+            const light = new THREE.PointLight(0xffffff, 0, 0);
+            light.userData.poolIndex = i;
+            light.userData.addedToScene = false;
+
+            // Enable shadows for WebGPU, disable for WebGL
+            if (isWebGPU) {
+              light.castShadow = true;
+              light.shadow.mapSize.width = 512;
+              light.shadow.mapSize.height = 512;
+              light.shadow.camera.near = 0.1;
+              light.shadow.camera.far = 100;
+            } else {
+              light.castShadow = false;
+            }
+
+            eqLights.push(light);
+
+            // Create enhanced helper with wireframe sphere and range indicator
+            const helper = new THREE.Group();
+
+            // Main light helper (small sphere at light position) - independent of actual light
+            const pointHelperGeometry = new THREE.SphereGeometry(3, 8, 6);
+            const pointHelperMaterial = new THREE.MeshBasicMaterial({
+              color: 0xffff00,
+            });
+            const pointHelper = new THREE.Mesh(
+              pointHelperGeometry,
+              pointHelperMaterial
+            );
+            helper.add(pointHelper);
+
+            // Range visualization sphere (wireframe)
+            const rangeGeometry = new THREE.SphereGeometry(1, 8, 6); // Will be scaled by light range
+            const rangeMaterial = new THREE.MeshBasicMaterial({
+              color: 0x00ffff,
+              wireframe: true,
+              transparent: true,
+              opacity: 0.3,
+            });
+            const rangeSphere = new THREE.Mesh(rangeGeometry, rangeMaterial);
+            helper.add(rangeSphere);
+
+            // Position marker (small colored cube)
+            const markerGeometry = new THREE.BoxGeometry(8, 8, 8);
+            const markerMaterial = new THREE.MeshBasicMaterial({
+              color: 0xff0000,
+            });
+            const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            helper.add(marker);
+
+            // Store which light data this helper represents
+            helper.userData.lightIndex = i;
+            helper.userData.pointHelper = pointHelper;
+            helper.userData.rangeSphere = rangeSphere;
+            helper.userData.marker = marker;
+            helper.visible = false;
+
+            // Add helper to scene immediately so it can be toggled independently
+            scene.add(helper);
+            lightHelpers.push(helper);
+          }
+
+          // Create helpers for ALL lights (not just active pool)
+          // We limit to 50 helpers to prevent performance issues
+          const maxHelpers = Math.min(lightCount, 50);
+          for (let i = lightHelpers.length; i < maxHelpers; i++) {
+            createAdditionalHelper(i);
+          }
+
+          console.log(
+            `Created light pool: ${
+              eqLights.length
+            } active lights for ${lightCount} total EQ lights (shadows ${
+              isWebGPU
+                ? "enabled with WebGPU"
+                : "disabled for WebGL compatibility"
+            })`
+          );
+          console.log(
+            `Created ${lightHelpers.length} light helpers to visualize light positions`
+          );
+          console.log(
+            `Using light pooling with ${
+              isWebGPU ? "WebGPU high-capacity" : "WebGL limited"
+            } rendering`
+          );
+          console.log(
+            "EQ lights represent torches, campfires, magical light sources, and ambient zone lighting from the original game"
+          );
+          console.log(
+            `Up to ${MAX_ACTIVE_LIGHTS} lights closest to your camera position are active at any time`
+          );
+          console.log(
+            "Use 'Toggle Helpers' to see ALL light positions and ranges (red cubes + cyan wireframes)"
+          );
+        }
+
+        // Update light statistics
+        document.getElementById("lightCount").textContent = lightCount;
+        document.getElementById("shadowCount").textContent = "Disabled";
+        document.getElementById("maxLights").textContent = MAX_ACTIVE_LIGHTS;
+
+        // Start the light culling system
+        if (lightCount > 0) {
+          updateNearbyLights();
+        }
+      }
+
+      function updateNearbyLights() {
+        // Only update every 15 frames for performance
+        lightUpdateCounter++;
+        if (lightUpdateCounter % 15 !== 0) return;
+
+        // Only update if camera moved significantly
+        const currentPos = camera.position.clone();
+        if (currentPos.distanceTo(lastCameraPosition) < 75) return;
+        lastCameraPosition.copy(currentPos);
+
+        if (!eqLightsEnabled || !window.allEQLightData || eqLights.length === 0)
+          return;
+
+        // Calculate distances to all light data
+        const lightDistances = window.allEQLightData.map(
+          (lightData, index) => ({
+            data: lightData,
+            distance: camera.position.distanceTo(
+              new THREE.Vector3().fromArray(lightData.position)
+            ),
+            index: index,
+          })
+        );
+
+        // Sort by distance (closest first)
+        lightDistances.sort((a, b) => a.distance - b.distance);
+
+        // Update the pooled lights with the closest light data
+        let activeLights = 0;
+        for (let i = 0; i < eqLights.length && i < lightDistances.length; i++) {
+          const lightData = lightDistances[i];
+          const pooledLight = eqLights[i];
+          const helper = lightHelpers[i];
+
+          // Only use lights within reasonable range
+          if (
+            lightData.distance < lightData.data.range * 2.5 &&
+            eqLightsEnabled
+          ) {
+            // Update the pooled light with new data
+            pooledLight.color.fromArray(lightData.data.color);
+            pooledLight.position.fromArray(lightData.data.position);
+            pooledLight.intensity = lightData.data.intensity;
+            pooledLight.distance = lightData.data.range;
+
+            // Apply global intensity multiplier
+            const intensityMultiplier =
+              window.eqLightIntensityMultiplier || 1.0;
+            pooledLight.intensity *= intensityMultiplier;
+
+            // Fade based on distance for smooth transitions
+            const fadeDistance = lightData.data.range * 1.8;
+            const fadeFactor = Math.max(
+              0.1,
+              1 - lightData.distance / fadeDistance
+            );
+            pooledLight.intensity *= fadeFactor;
+
+            // Add light to scene if not already added
+            if (!pooledLight.userData.addedToScene) {
+              scene.add(pooledLight);
+              pooledLight.userData.addedToScene = true;
+            }
+
+            activeLights++;
+          } else {
+            // Remove unused pooled lights from scene to avoid uniform limits
+            if (pooledLight.userData.addedToScene) {
+              scene.remove(pooledLight);
+              pooledLight.userData.addedToScene = false;
+            }
+          }
+        }
+
+        // Remove any remaining unused pooled lights from scene
+        for (let i = activeLights; i < eqLights.length; i++) {
+          const pooledLight = eqLights[i];
+          if (pooledLight.userData.addedToScene) {
+            scene.remove(pooledLight);
+            pooledLight.userData.addedToScene = false;
+          }
+        }
+
+        // Update active light count display
+        document.getElementById("activeLightCount").textContent = activeLights;
+      }
+
+      function clearEQlights() {
+        // Only remove lights that were actually added to the scene
+        eqLights.forEach((light) => {
+          if (light.userData.addedToScene) {
+            scene.remove(light);
+          }
+        });
+
+        // Remove all helpers from scene
+        lightHelpers.forEach((helper) => {
+          if (helper.parent) {
+            scene.remove(helper);
+          }
+        });
+
+        eqLights = [];
+        lightHelpers = [];
+        window.allEQLightData = [];
+
+        // Reset light statistics
+        document.getElementById("lightCount").textContent = "0";
+        document.getElementById("shadowCount").textContent = "Disabled";
+        document.getElementById("activeLightCount").textContent = "0";
+      }
+
+      function updateStats(gltf) {
+        let meshCount = 0;
+        let vertexCount = 0;
+        let faceCount = 0;
+
+        gltf.scene.traverse(function (child) {
+          if (child.isMesh) {
+            meshCount++;
+            if (child.geometry) {
+              const positions = child.geometry.attributes.position;
+              if (positions) {
+                vertexCount += positions.count;
+              }
+              const index = child.geometry.index;
+              if (index) {
+                faceCount += index.count / 3;
+              } else if (positions) {
+                faceCount += positions.count / 3;
+              }
+            }
+          }
+        });
+
+        document.getElementById("stats").innerHTML = `
+                <div>Meshes: ${meshCount}</div>
+                <div>Vertices: ${vertexCount}</div>
+                <div>Faces: ${Math.floor(faceCount)}</div>
+            `;
+      }
+
+      function convertMeshMaterials(child) {
+        if (!child.material) return;
+
+        const materials = Array.isArray(child.material)
+          ? child.material
+          : [child.material];
+        const newMaterials = materials.map((material) => {
+          // Store original material properties
+          const materialProps = {
+            map: material.map || null,
+            transparent: material.transparent || false,
+            opacity: material.opacity || 1.0,
+            alphaTest: material.alphaTest || 0,
+            side: material.side || THREE.FrontSide,
+            color: material.color || 0xffffff,
+          };
+
+          let newMaterial;
+          if (materialType === "lit") {
+            // Use MeshStandardMaterial for WebGPU (full PBR) or MeshLambertMaterial for WebGL
+            if (isWebGPU) {
+              newMaterial = new THREE.MeshStandardMaterial(materialProps);
+            } else {
+              newMaterial = new THREE.MeshLambertMaterial(materialProps);
+            }
+          } else {
+            // Use MeshBasicMaterial (unlit, faster)
+            newMaterial = new THREE.MeshBasicMaterial(materialProps);
+          }
+
+          return newMaterial;
+        });
+
+        // Replace the material(s)
+        if (Array.isArray(child.material)) {
+          child.material = newMaterials;
+        } else {
+          child.material = newMaterials[0];
+        }
+      }
+
+      function toggleMaterialType() {
+        materialType = materialType === "lit" ? "unlit" : "lit";
+
+        // Update button text
+        const button = event.target;
+        button.textContent = `Toggle Materials (${
+          materialType === "lit" ? "Lit" : "Unlit"
+        })`;
+
+        // Reprocess all materials in the current model
+        if (currentModel) {
+          currentModel.traverse(function (child) {
+            if (child.isMesh && child.material && !child.userData.isSkybox) {
+              convertMeshMaterials(child);
+            }
+          });
+        }
+
+        console.log(`Switched to ${materialType} materials`);
+      }
+
+      function resetCamera() {
+        if (currentModel) {
+          // Calculate bounding box excluding skybox meshes
+          const box = new THREE.Box3();
+          currentModel.traverse(function (child) {
+            if (child.isMesh && !child.userData.isSkybox) {
+              box.expandByObject(child);
+            }
+          });
+
+          const size = box.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+
+          // Reset position and rotation for first-person view
+          if (maxDim > 0) {
+            camera.position.set(0, size.y * 0.3, maxDim * 0.3);
+          } else {
+            camera.position.set(0, 50, 50);
+          }
+          camera.rotation.set(0, 0, 0);
+          euler.set(0, 0, 0);
+        } else {
+          // Default position if no model loaded
+          camera.position.set(50, 50, 50);
+          camera.rotation.set(0, 0, 0);
+          euler.set(0, 0, 0);
+        }
+      }
+
+      function toggleWireframe() {
+        wireframeMode = !wireframeMode;
+        if (currentModel) {
+          currentModel.traverse(function (child) {
+            if (child.isMesh && child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(
+                  (mat) => (mat.wireframe = wireframeMode)
+                );
+              } else {
+                child.material.wireframe = wireframeMode;
+              }
+            }
+          });
+        }
+      }
+
+      function toggleLighting() {
+        lightingEnabled = !lightingEnabled;
+        ambientLight.visible = lightingEnabled;
+        directionalLight.visible = lightingEnabled;
+      }
+
+      function reloadLastFile() {
+        if (lastFileData && lastFileName) {
+          console.log("Reloading:", lastFileName);
+          loadGLTF(lastFileData, lastFileName);
+        }
+      }
+
+      function saveFileToStorage(arrayBuffer, fileName) {
+        try {
+          // Convert ArrayBuffer to base64 for storage
+          const bytes = new Uint8Array(arrayBuffer);
+          const binary = bytes.reduce(
+            (acc, byte) => acc + String.fromCharCode(byte),
+            ""
+          );
+          const base64 = btoa(binary);
+
+          // Check size (localStorage has ~5MB limit)
+          const sizeInMB = base64.length / (1024 * 1024);
+          if (sizeInMB > 4) {
+            console.log(
+              `File too large (${sizeInMB.toFixed(
+                1
+              )}MB) for localStorage. Use drag-and-drop after refresh.`
+            );
+            return;
+          }
+
+          localStorage.setItem("lastFileName", fileName);
+          localStorage.setItem("lastFileData", base64);
+          console.log(
+            `Saved ${fileName} to localStorage (${sizeInMB.toFixed(2)}MB)`
+          );
+        } catch (e) {
+          console.log("Could not save file to localStorage:", e.message);
+        }
+      }
+
+      function restoreLastFile() {
+        try {
+          const fileName = localStorage.getItem("lastFileName");
+          const base64Data = localStorage.getItem("lastFileData");
+
+          if (fileName && base64Data) {
+            // Convert base64 back to ArrayBuffer
+            const binary = atob(base64Data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              bytes[i] = binary.charCodeAt(i);
+            }
+
+            lastFileData = bytes.buffer;
+            lastFileName = fileName;
+
+            // Enable the reload button
+            const reloadButton = document.getElementById("reloadButton");
+            reloadButton.disabled = false;
+            reloadButton.textContent = `Reload: ${fileName}`;
+
+            console.log(`Restored ${fileName} from localStorage`);
+          }
+        } catch (e) {
+          console.log("Could not restore file from localStorage:", e.message);
+          // Clear corrupted data
+          localStorage.removeItem("lastFileName");
+          localStorage.removeItem("lastFileData");
+        }
+      }
+
+      function setupDragAndDrop() {
+        const container = document.getElementById("container");
+
+        container.addEventListener("dragover", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          container.classList.add("drag-over");
+        });
+
+        container.addEventListener("dragleave", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          container.classList.remove("drag-over");
+        });
+
+        container.addEventListener("drop", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          container.classList.remove("drag-over");
+
+          const files = e.dataTransfer.files;
+          if (files.length > 0) {
+            const file = files[0];
+            if (
+              file.name.toLowerCase().endsWith(".glb") ||
+              file.name.toLowerCase().endsWith(".gltf")
+            ) {
+              processFile(file);
+            } else {
+              alert("Please drop a .glb or .gltf file");
+            }
+          }
+        });
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        const time = performance.now();
+        const delta = (time - prevTime) / 1000;
+
+        updateMovement(delta);
+
+        // Update EverQuest light culling based on camera position
+        updateNearbyLights();
+
+        // Update skybox positions to follow camera
+        if (currentModel) {
+          currentModel.traverse(function (child) {
+            if (child.userData && child.userData.isSkybox) {
+              child.position.copy(camera.position);
+              child.position.y -= 1000;
+            }
+          });
+        }
+
+        prevTime = time;
+        renderer.render(scene, camera);
+      }
+
+      function createAdditionalHelper(index) {
+        const helper = new THREE.Group();
+
+        // Main light helper (small sphere at light position)
+        const pointHelperGeometry = new THREE.SphereGeometry(3, 8, 6);
+        const pointHelperMaterial = new THREE.MeshBasicMaterial({
+          color: 0xffff00,
+        });
+        const pointHelper = new THREE.Mesh(
+          pointHelperGeometry,
+          pointHelperMaterial
+        );
+        helper.add(pointHelper);
+
+        // Range visualization sphere (wireframe)
+        const rangeGeometry = new THREE.SphereGeometry(1, 8, 6);
+        const rangeMaterial = new THREE.MeshBasicMaterial({
+          color: 0x00ffff,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.3,
+        });
+        const rangeSphere = new THREE.Mesh(rangeGeometry, rangeMaterial);
+        helper.add(rangeSphere);
+
+        // Position marker (small colored cube)
+        const markerGeometry = new THREE.BoxGeometry(8, 8, 8);
+        const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+        helper.add(marker);
+
+        helper.userData.lightIndex = index;
+        helper.userData.pointHelper = pointHelper;
+        helper.userData.rangeSphere = rangeSphere;
+        helper.userData.marker = marker;
+        helper.visible = false;
+
+        scene.add(helper);
+        lightHelpers.push(helper);
+      }
+
+      // Make functions globally accessible for HTML onclick handlers
+      window.resetCamera = resetCamera;
+      window.toggleWireframe = toggleWireframe;
+      window.toggleLighting = toggleLighting;
+      window.toggleMaterialType = toggleMaterialType;
+      window.togglePointerLock = togglePointerLock;
+      window.reloadLastFile = reloadLastFile;
+      window.toggleEQlights = toggleEQlights;
+      window.toggleLightHelpers = toggleLightHelpers;
+
+      // Initialize when page loads (async for WebGPU initialization)
+      window.addEventListener("load", async () => {
+        try {
+          await init();
+        } catch (error) {
+          console.error("Failed to initialize viewer:", error);
+          alert(
+            "Failed to load the zone viewer. Please refresh the page and try again."
+          );
+        }
+      });
+    </script>
+  </body>
+</html>
