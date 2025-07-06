@@ -2,7 +2,7 @@
 
 <img width="1350" alt="eqscreen" src="https://github.com/user-attachments/assets/eb366f12-39db-4b9f-90dc-ee168bf79b0c" />
 
-A Python-based converter for extracting and converting classic EverQuest game assets into modern web-viewable formats, plus a simple web-based application using Three.js to navigate around the zones. Based on initial work in [OpenEQ Project](https://github.com/OpenEQ). I ultimately stopped progress on this project after finding the very new [eqrequiem](https://github.com/knervous/eqrequiem) project, which has done all the work here but better and to a much larger extent (which is very cool!).
+A Python-based converter for extracting and converting classic EverQuest game assets into modern web-viewable formats, plus a simple web-based application using Three.js to navigate around the zones. Based on initial work in [OpenEQ Project](https://github.com/daeken/OpenEQ). I ultimately stopped progress on this project after finding the very new [eqrequiem](https://github.com/knervous/eqrequiem) project, which has done all the work here but better and to a much larger extent (which is very cool!).
 
 ## Overview
 
