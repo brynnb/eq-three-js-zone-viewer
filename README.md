@@ -527,4 +527,3 @@ converter/
 - [EverQuest File Formats](https://github.com/EQEmu/Server/wiki/File-Formats)
 - [glTF Specification](https://github.com/KhronosGroup/glTF)
 - [Three.js Documentation](https://threejs.org/docs/)
-- ***
