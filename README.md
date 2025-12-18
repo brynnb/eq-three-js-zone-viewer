@@ -449,11 +449,9 @@ EverQuest includes **5 different sky configurations**:
 - **Original EverQuest Client** - Sky rendering pipeline
 - **Reverse Engineering** - Community documentation of sky formats
 
-**Note**: This represents one of the most sophisticated sky systems in classic MMORPGs, predating modern physically-based atmospheric rendering by many years.
-
 ## Status & Known Issues
 
-### ✅ Fully Functional
+### Fully Functional
 
 - **Zone Conversion**: All major zones supported
 - **Texture Processing**: PNG conversion working
@@ -461,7 +459,7 @@ EverQuest includes **5 different sky configurations**:
 - **Three.js Export**: Web-ready glTF generation
 - **File Size**: Optimized output formats
 
-### ⚠️ Known Limitations
+### Known Limitations
 
 #### Texture Index Warnings
 
